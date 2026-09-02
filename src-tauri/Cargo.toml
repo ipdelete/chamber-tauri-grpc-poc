@@ -2,12 +2,15 @@
 name = "chamber-tauri-host"
 version = "0.1.0"
 edition = "2024"
+default-run = "chamber-tauri-host"
 
 [dependencies]
 prost = "0.14.4"
+tauri = { version = "2.11.5", features = [] }
 tokio = { version = "1.53.1", features = ["io-util", "macros", "process", "rt-multi-thread", "time"] }
 tonic = "0.14.6"
 tonic-prost = "0.14.6"
 
 [build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
 tonic-prost-build = "0.14.6"

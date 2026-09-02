@@ -1,0 +1,19 @@
+:root {
+  color: #e6edf3;
+  background: #0f141b;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+
+h1 {
+  font-size: 3rem;
+}
