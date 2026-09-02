@@ -6,6 +6,7 @@ default-run = "chamber-tauri-host"
 
 [dependencies]
 prost = "0.14.4"
+serde = { version = "1.0.229", features = ["derive"] }
 tauri = { version = "2.11.5", features = [] }
 tokio = { version = "1.53.1", features = ["io-util", "macros", "process", "rt-multi-thread", "time"] }
 tonic = "0.14.6"
