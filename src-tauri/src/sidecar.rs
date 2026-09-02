@@ -100,4 +100,11 @@ impl SidecarProcess {
             }
         }
     }
+
+    pub async fn kill(mut self) -> io::Result<()> {
+        drop(self.stdin.take());
+        self.child.kill().await?;
+        self.child.wait().await?;
+        Ok(())
+    }
 }
