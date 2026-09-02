@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package chamber.agent.v1;
+
+service AgentRuntime {
+  rpc Chat(ChatRequest) returns (stream AgentEvent);
+}
+
+message ChatRequest {
+  string session_id = 1;
+  string prompt = 2;
+}
+
+message AgentEvent {
+  string session_id = 1;
+
+  oneof payload {
+    Started started = 2;
+    TextDelta text_delta = 3;
+    Completed completed = 4;
+    RuntimeError error = 5;
+  }
+}
+
+message Started {}
+
+message TextDelta {
+  string text = 1;
+}
+
+message Completed {}
+
+message RuntimeError {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+}
