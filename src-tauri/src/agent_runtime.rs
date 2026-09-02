@@ -25,6 +25,7 @@ pub enum ChatEventPayload {
     },
 }
 
+#[derive(Clone)]
 pub struct AgentRuntime {
     client: AgentRuntimeClient<Channel>,
 }

@@ -87,6 +87,10 @@ button {
   cursor: pointer;
 }
 
+button.stop {
+  background: #da3633;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.6;

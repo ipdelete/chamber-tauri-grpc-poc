@@ -13,6 +13,7 @@ type ChatEvent =
   | { type: "started"; session_id: string }
   | { type: "text_delta"; session_id: string; text: string }
   | { type: "completed"; session_id: string }
+  | { type: "cancelled"; session_id: string }
   | {
       type: "error";
       session_id: string;
@@ -46,6 +47,21 @@ export default function App() {
           );
           break;
         case "completed":
+          setSending(false);
+          break;
+        case "cancelled":
+          setMessages((current) =>
+            current.map((message, index) =>
+              index === current.length - 1
+                ? {
+                    ...message,
+                    text: message.text
+                      ? `${message.text}\n\nStopped.`
+                      : "Stopped.",
+                  }
+                : message,
+            ),
+          );
           setSending(false);
           break;
         case "error":
@@ -83,6 +99,14 @@ export default function App() {
     }
   }
 
+  async function cancel() {
+    try {
+      await invoke("cancel_message", { sessionId: "demo" });
+    } catch (reason) {
+      setError(String(reason));
+    }
+  }
+
   return (
     <main className="app">
       <header>
@@ -113,9 +137,15 @@ export default function App() {
           placeholder="Message Chamber"
           value={prompt}
         />
-        <button disabled={sending || !prompt.trim()} type="submit">
-          {sending ? "Thinking..." : "Send"}
-        </button>
+        {sending ? (
+          <button className="stop" onClick={cancel} type="button">
+            Stop
+          </button>
+        ) : (
+          <button disabled={!prompt.trim()} type="submit">
+            Send
+          </button>
+        )}
       </form>
     </main>
   );

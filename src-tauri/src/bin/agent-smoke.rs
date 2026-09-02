@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sidecar_a.kill().await?;
     println!("[sidecar-a] killed");
 
+    cancel_after_first_delta(&mut runtime_b).await?;
+    println!("[sidecar-b] cancelled active stream");
+
     let survivor = chat(
         &mut runtime_b,
         "sidecar-b-survivor",
@@ -61,4 +64,30 @@ async fn chat(
     }
 
     Ok(response)
+}
+
+async fn cancel_after_first_delta(
+    runtime: &mut AgentRuntime,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut events = runtime
+        .chat(
+            "sidecar-b-cancelled",
+            "Write a detailed 500-word explanation of process isolation.",
+        )
+        .await?;
+
+    while let Some(event) = events.message().await? {
+        match event.payload {
+            ChatEventPayload::Started => {}
+            ChatEventPayload::TextDelta(_) => return Ok(()),
+            ChatEventPayload::Completed => {
+                return Err(std::io::Error::other("chat completed before cancellation").into());
+            }
+            ChatEventPayload::RuntimeError { code, message, .. } => {
+                return Err(std::io::Error::other(format!("{code}: {message}")).into());
+            }
+        }
+    }
+
+    Err(std::io::Error::other("chat ended before cancellation").into())
 }
