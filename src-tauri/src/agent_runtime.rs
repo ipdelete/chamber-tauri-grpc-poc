@@ -4,9 +4,13 @@ mod protocol {
 
 use std::fmt::Write;
 
-use protocol::ChatRequest;
 use protocol::agent_event::Payload;
 use protocol::agent_runtime_client::AgentRuntimeClient;
+use protocol::host_message::Payload as HostPayload;
+use protocol::host_tool_result::Outcome;
+use protocol::{ChatRequest, HostMessage, HostToolResult, UserPrompt};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, transport::Channel};
 
 pub fn generate_auth_token() -> Result<String, getrandom::Error> {
@@ -35,6 +39,11 @@ pub enum ChatEventPayload {
         message: String,
         retryable: bool,
     },
+    HostToolCall {
+        call_id: String,
+        name: String,
+        arguments_json: String,
+    },
 }
 
 #[derive(Clone)]
@@ -60,26 +69,64 @@ impl AgentRuntime {
         session_id: impl Into<String>,
         prompt: impl Into<String>,
     ) -> Result<ChatStream, tonic::Status> {
+        let session_id = session_id.into();
         let mut request = Request::new(ChatRequest {
-            session_id: session_id.into(),
+            session_id: session_id.clone(),
             prompt: prompt.into(),
         });
+        self.authenticate(&mut request)?;
+        let response = self.client.chat(request).await?;
+
+        Ok(ChatStream {
+            inner: response.into_inner(),
+            requests: None,
+            session_id,
+        })
+    }
+
+    pub async fn interactive_chat(
+        &mut self,
+        session_id: impl Into<String>,
+        prompt: impl Into<String>,
+    ) -> Result<ChatStream, tonic::Status> {
+        let session_id = session_id.into();
+        let (requests, incoming) = mpsc::channel(8);
+        requests
+            .send(HostMessage {
+                session_id: session_id.clone(),
+                payload: Some(HostPayload::Prompt(UserPrompt {
+                    text: prompt.into(),
+                })),
+            })
+            .await
+            .map_err(|_| tonic::Status::unavailable("agent request stream closed"))?;
+
+        let mut request = Request::new(ReceiverStream::new(incoming));
+        self.authenticate(&mut request)?;
+        let response = self.client.interact(request).await?;
+
+        Ok(ChatStream {
+            inner: response.into_inner(),
+            requests: Some(requests),
+            session_id,
+        })
+    }
+
+    fn authenticate<T>(&self, request: &mut Request<T>) -> Result<(), tonic::Status> {
         request.metadata_mut().insert(
             "x-chamber-token",
             self.auth_token
                 .parse()
                 .map_err(|_| tonic::Status::internal("invalid sidecar authentication token"))?,
         );
-        let response = self.client.chat(request).await?;
-
-        Ok(ChatStream {
-            inner: response.into_inner(),
-        })
+        Ok(())
     }
 }
 
 pub struct ChatStream {
     inner: tonic::Streaming<protocol::AgentEvent>,
+    requests: Option<mpsc::Sender<HostMessage>>,
+    session_id: String,
 }
 
 impl ChatStream {
@@ -96,6 +143,11 @@ impl ChatStream {
                 message: error.message,
                 retryable: error.retryable,
             },
+            Some(Payload::HostToolCall(call)) => ChatEventPayload::HostToolCall {
+                call_id: call.call_id,
+                name: call.name,
+                arguments_json: call.arguments_json,
+            },
             None => return Err(tonic::Status::data_loss("agent event has no payload")),
         };
 
@@ -103,5 +155,30 @@ impl ChatStream {
             session_id: event.session_id,
             payload,
         }))
+    }
+
+    pub async fn send_tool_result(
+        &self,
+        call_id: String,
+        result: Result<String, String>,
+    ) -> Result<(), tonic::Status> {
+        let requests = self
+            .requests
+            .as_ref()
+            .ok_or_else(|| tonic::Status::failed_precondition("chat is not interactive"))?;
+        let outcome = match result {
+            Ok(json) => Outcome::ResultJson(json),
+            Err(error) => Outcome::Error(error),
+        };
+        requests
+            .send(HostMessage {
+                session_id: self.session_id.clone(),
+                payload: Some(HostPayload::ToolResult(HostToolResult {
+                    call_id,
+                    outcome: Some(outcome),
+                })),
+            })
+            .await
+            .map_err(|_| tonic::Status::unavailable("agent request stream closed"))
     }
 }

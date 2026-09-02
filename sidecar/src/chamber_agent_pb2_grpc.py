@@ -39,6 +39,11 @@ class AgentRuntimeStub:
                 request_serializer=chamber__agent__pb2.ChatRequest.SerializeToString,
                 response_deserializer=chamber__agent__pb2.AgentEvent.FromString,
                 _registered_method=True)
+        self.Interact = channel.stream_stream(
+                '/chamber.agent.v1.AgentRuntime/Interact',
+                request_serializer=chamber__agent__pb2.HostMessage.SerializeToString,
+                response_deserializer=chamber__agent__pb2.AgentEvent.FromString,
+                _registered_method=True)
 
 
 class AgentRuntimeServicer:
@@ -50,12 +55,23 @@ class AgentRuntimeServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Interact(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AgentRuntimeServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Chat': grpc.unary_stream_rpc_method_handler(
                     servicer.Chat,
                     request_deserializer=chamber__agent__pb2.ChatRequest.FromString,
+                    response_serializer=chamber__agent__pb2.AgentEvent.SerializeToString,
+            ),
+            'Interact': grpc.stream_stream_rpc_method_handler(
+                    servicer.Interact,
+                    request_deserializer=chamber__agent__pb2.HostMessage.FromString,
                     response_serializer=chamber__agent__pb2.AgentEvent.SerializeToString,
             ),
     }
@@ -85,6 +101,33 @@ class AgentRuntime:
             target,
             '/chamber.agent.v1.AgentRuntime/Chat',
             chamber__agent__pb2.ChatRequest.SerializeToString,
+            chamber__agent__pb2.AgentEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Interact(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/chamber.agent.v1.AgentRuntime/Interact',
+            chamber__agent__pb2.HostMessage.SerializeToString,
             chamber__agent__pb2.AgentEvent.FromString,
             options,
             channel_credentials,

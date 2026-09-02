@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x63hamber_agent.proto\x12\x10\x63hamber.agent.v1\"1\n\x0b\x43hatRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0e\n\x06prompt\x18\x02 \x01(\t\"\xef\x01\n\nAgentEvent\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12,\n\x07started\x18\x02 \x01(\x0b\x32\x19.chamber.agent.v1.StartedH\x00\x12\x31\n\ntext_delta\x18\x03 \x01(\x0b\x32\x1b.chamber.agent.v1.TextDeltaH\x00\x12\x30\n\tcompleted\x18\x04 \x01(\x0b\x32\x1b.chamber.agent.v1.CompletedH\x00\x12/\n\x05\x65rror\x18\x05 \x01(\x0b\x32\x1e.chamber.agent.v1.RuntimeErrorH\x00\x42\t\n\x07payload\"\t\n\x07Started\"\x19\n\tTextDelta\x12\x0c\n\x04text\x18\x01 \x01(\t\"\x0b\n\tCompleted\"@\n\x0cRuntimeError\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x11\n\tretryable\x18\x03 \x01(\x08\x32U\n\x0c\x41gentRuntime\x12\x45\n\x04\x43hat\x12\x1d.chamber.agent.v1.ChatRequest\x1a\x1c.chamber.agent.v1.AgentEvent0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x63hamber_agent.proto\x12\x10\x63hamber.agent.v1\"1\n\x0b\x43hatRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0e\n\x06prompt\x18\x02 \x01(\t\"\xa9\x02\n\nAgentEvent\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12,\n\x07started\x18\x02 \x01(\x0b\x32\x19.chamber.agent.v1.StartedH\x00\x12\x31\n\ntext_delta\x18\x03 \x01(\x0b\x32\x1b.chamber.agent.v1.TextDeltaH\x00\x12\x30\n\tcompleted\x18\x04 \x01(\x0b\x32\x1b.chamber.agent.v1.CompletedH\x00\x12/\n\x05\x65rror\x18\x05 \x01(\x0b\x32\x1e.chamber.agent.v1.RuntimeErrorH\x00\x12\x38\n\x0ehost_tool_call\x18\x06 \x01(\x0b\x32\x1e.chamber.agent.v1.HostToolCallH\x00\x42\t\n\x07payload\"\x95\x01\n\x0bHostMessage\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12.\n\x06prompt\x18\x02 \x01(\x0b\x32\x1c.chamber.agent.v1.UserPromptH\x00\x12\x37\n\x0btool_result\x18\x03 \x01(\x0b\x32 .chamber.agent.v1.HostToolResultH\x00\x42\t\n\x07payload\"\x1a\n\nUserPrompt\x12\x0c\n\x04text\x18\x01 \x01(\t\"E\n\x0cHostToolCall\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x16\n\x0e\x61rguments_json\x18\x03 \x01(\t\"T\n\x0eHostToolResult\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12\x15\n\x0bresult_json\x18\x02 \x01(\tH\x00\x12\x0f\n\x05\x65rror\x18\x03 \x01(\tH\x00\x42\t\n\x07outcome\"\t\n\x07Started\"\x19\n\tTextDelta\x12\x0c\n\x04text\x18\x01 \x01(\t\"\x0b\n\tCompleted\"@\n\x0cRuntimeError\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x11\n\tretryable\x18\x03 \x01(\x08\x32\xa2\x01\n\x0c\x41gentRuntime\x12\x45\n\x04\x43hat\x12\x1d.chamber.agent.v1.ChatRequest\x1a\x1c.chamber.agent.v1.AgentEvent0\x01\x12K\n\x08Interact\x12\x1d.chamber.agent.v1.HostMessage\x1a\x1c.chamber.agent.v1.AgentEvent(\x01\x30\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,15 +34,23 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_CHATREQUEST']._serialized_start=41
   _globals['_CHATREQUEST']._serialized_end=90
   _globals['_AGENTEVENT']._serialized_start=93
-  _globals['_AGENTEVENT']._serialized_end=332
-  _globals['_STARTED']._serialized_start=334
-  _globals['_STARTED']._serialized_end=343
-  _globals['_TEXTDELTA']._serialized_start=345
-  _globals['_TEXTDELTA']._serialized_end=370
-  _globals['_COMPLETED']._serialized_start=372
-  _globals['_COMPLETED']._serialized_end=383
-  _globals['_RUNTIMEERROR']._serialized_start=385
-  _globals['_RUNTIMEERROR']._serialized_end=449
-  _globals['_AGENTRUNTIME']._serialized_start=451
-  _globals['_AGENTRUNTIME']._serialized_end=536
+  _globals['_AGENTEVENT']._serialized_end=390
+  _globals['_HOSTMESSAGE']._serialized_start=393
+  _globals['_HOSTMESSAGE']._serialized_end=542
+  _globals['_USERPROMPT']._serialized_start=544
+  _globals['_USERPROMPT']._serialized_end=570
+  _globals['_HOSTTOOLCALL']._serialized_start=572
+  _globals['_HOSTTOOLCALL']._serialized_end=641
+  _globals['_HOSTTOOLRESULT']._serialized_start=643
+  _globals['_HOSTTOOLRESULT']._serialized_end=727
+  _globals['_STARTED']._serialized_start=729
+  _globals['_STARTED']._serialized_end=738
+  _globals['_TEXTDELTA']._serialized_start=740
+  _globals['_TEXTDELTA']._serialized_end=765
+  _globals['_COMPLETED']._serialized_start=767
+  _globals['_COMPLETED']._serialized_end=778
+  _globals['_RUNTIMEERROR']._serialized_start=780
+  _globals['_RUNTIMEERROR']._serialized_end=844
+  _globals['_AGENTRUNTIME']._serialized_start=847
+  _globals['_AGENTRUNTIME']._serialized_end=1009
 # @@protoc_insertion_point(module_scope)

@@ -1,4 +1,5 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=../proto/chamber_agent.proto");
     tauri_build::build();
     tonic_prost_build::configure()
         .build_server(false)

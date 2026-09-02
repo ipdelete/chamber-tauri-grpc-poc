@@ -1,4 +1,5 @@
-use chamber_tauri_host::agent_runtime::{AgentRuntime, ChatEventPayload};
+use chamber_tauri_host::agent_runtime::{AgentRuntime, ChatEventPayload, generate_auth_token};
+use chamber_tauri_host::lens::upsert;
 use chamber_tauri_host::sidecar::SidecarProcess;
 
 #[tokio::main]
@@ -35,6 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     println!("[sidecar-b] {survivor}");
 
+    prove_lens_host_tool(&mut runtime_b).await?;
+
     drop(runtime_a);
     drop(runtime_b);
     sidecar_b.shutdown().await?;
@@ -56,6 +59,11 @@ async fn chat(
             ChatEventPayload::Completed => completed = true,
             ChatEventPayload::RuntimeError { code, message, .. } => {
                 return Err(std::io::Error::other(format!("{code}: {message}")).into());
+            }
+            ChatEventPayload::HostToolCall { name, .. } => {
+                return Err(
+                    std::io::Error::other(format!("unexpected host tool call: {name}")).into(),
+                );
             }
         }
     }
@@ -102,8 +110,65 @@ async fn cancel_after_first_delta(
             ChatEventPayload::RuntimeError { code, message, .. } => {
                 return Err(std::io::Error::other(format!("{code}: {message}")).into());
             }
+            ChatEventPayload::HostToolCall { name, .. } => {
+                return Err(
+                    std::io::Error::other(format!("unexpected host tool call: {name}")).into(),
+                );
+            }
         }
     }
 
     Err(std::io::Error::other("chat ended before cancellation").into())
+}
+
+async fn prove_lens_host_tool(
+    runtime: &mut AgentRuntime,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = std::env::temp_dir().join(format!("chamber-lens-smoke-{}", generate_auth_token()?));
+    let mut events = runtime
+        .interactive_chat(
+            "lens-tool",
+            "Create a Canvas Lens named Smoke Board with one card saying Lens works. You must call lens_upsert.",
+        )
+        .await?;
+    let mut called = false;
+
+    while let Some(event) = events.message().await? {
+        match event.payload {
+            ChatEventPayload::Started | ChatEventPayload::TextDelta(_) => {}
+            ChatEventPayload::HostToolCall {
+                call_id,
+                name,
+                arguments_json,
+            } => {
+                if name != "lens_upsert" {
+                    return Err(std::io::Error::other(format!(
+                        "unexpected host tool call: {name}"
+                    ))
+                    .into());
+                }
+                let result = upsert(&root, &arguments_json).map(|lens| {
+                    called = true;
+                    serde_json::json!({
+                        "ok": true,
+                        "id": lens.id,
+                        "message": "Lens saved and displayed"
+                    })
+                    .to_string()
+                });
+                events.send_tool_result(call_id, result).await?;
+            }
+            ChatEventPayload::Completed => break,
+            ChatEventPayload::RuntimeError { code, message, .. } => {
+                return Err(std::io::Error::other(format!("{code}: {message}")).into());
+            }
+        }
+    }
+
+    if !called {
+        return Err(std::io::Error::other("agent did not call lens_upsert").into());
+    }
+    std::fs::remove_dir_all(root)?;
+    println!("[host-tool] lens_upsert completed");
+    Ok(())
 }

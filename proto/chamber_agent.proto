@@ -4,6 +4,7 @@ package chamber.agent.v1;
 
 service AgentRuntime {
   rpc Chat(ChatRequest) returns (stream AgentEvent);
+  rpc Interact(stream HostMessage) returns (stream AgentEvent);
 }
 
 message ChatRequest {
@@ -19,6 +20,35 @@ message AgentEvent {
     TextDelta text_delta = 3;
     Completed completed = 4;
     RuntimeError error = 5;
+    HostToolCall host_tool_call = 6;
+  }
+}
+
+message HostMessage {
+  string session_id = 1;
+
+  oneof payload {
+    UserPrompt prompt = 2;
+    HostToolResult tool_result = 3;
+  }
+}
+
+message UserPrompt {
+  string text = 1;
+}
+
+message HostToolCall {
+  string call_id = 1;
+  string name = 2;
+  string arguments_json = 3;
+}
+
+message HostToolResult {
+  string call_id = 1;
+
+  oneof outcome {
+    string result_json = 2;
+    string error = 3;
   }
 }
 

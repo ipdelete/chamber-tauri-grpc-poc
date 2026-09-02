@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use chamber_tauri_host::agent_runtime::{AgentRuntime, ChatEventPayload};
 use chamber_tauri_host::bundled_sidecar::BundledSidecarProcess;
+use chamber_tauri_host::lens::{LensDefinition, upsert};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{Mutex, oneshot};
@@ -103,7 +104,7 @@ async fn send_message(
                     .map_err(|error| error.to_string())?;
                 return Ok(());
             }
-            result = runtime.chat(session_id.clone(), prompt) => {
+            result = runtime.interactive_chat(session_id.clone(), prompt) => {
                 result.map_err(|error| error.to_string())?
             }
         };
@@ -148,6 +149,18 @@ async fn send_message(
                     message,
                     retryable,
                 },
+                ChatEventPayload::HostToolCall {
+                    call_id,
+                    name,
+                    arguments_json,
+                } => {
+                    let result = execute_host_tool(&app, &name, &arguments_json);
+                    events
+                        .send_tool_result(call_id, result)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    continue;
+                }
             };
             app.emit("chat-event", payload)
                 .map_err(|error| error.to_string())?;
@@ -160,6 +173,33 @@ async fn send_message(
 
     state.active_requests.lock().await.remove(&session_id);
     result
+}
+
+fn execute_host_tool(app: &AppHandle, name: &str, arguments_json: &str) -> Result<String, String> {
+    if name != "lens_upsert" {
+        return Err(format!("Unknown host tool: {name}"));
+    }
+
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("poc-mind")
+        .join(".github")
+        .join("lens");
+    let lens = upsert(&root, arguments_json)?;
+    app.emit("lens-event", lens.clone())
+        .map_err(|error| error.to_string())?;
+    tool_success(&lens)
+}
+
+fn tool_success(lens: &LensDefinition) -> Result<String, String> {
+    serde_json::to_string(&serde_json::json!({
+        "ok": true,
+        "id": lens.id,
+        "message": "Lens saved and displayed"
+    }))
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
