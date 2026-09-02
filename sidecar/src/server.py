@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import sys
 from collections.abc import AsyncIterator
 
 import grpc
@@ -48,7 +49,7 @@ class AgentRuntime(services.AgentRuntimeServicer):
         )
 
 
-async def serve(port: int) -> None:
+async def serve(port: int, shutdown_on_stdin_eof: bool) -> None:
     server = grpc.aio.server()
     services.add_AgentRuntimeServicer_to_server(AgentRuntime(), server)
     bound_port = server.add_insecure_port(f"127.0.0.1:{port}")
@@ -56,14 +57,19 @@ async def serve(port: int) -> None:
         raise RuntimeError(f"Could not bind gRPC server to port {port}")
     await server.start()
     print(f"READY {bound_port}", flush=True)
-    await server.wait_for_termination()
+    if shutdown_on_stdin_eof:
+        await asyncio.to_thread(sys.stdin.buffer.read)
+        await server.stop(grace=5)
+    else:
+        await server.wait_for_termination()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=50051)
+    parser.add_argument("--shutdown-on-stdin-eof", action="store_true")
     args = parser.parse_args()
-    asyncio.run(serve(args.port))
+    asyncio.run(serve(args.port, args.shutdown_on_stdin_eof))
 
 
 if __name__ == "__main__":
