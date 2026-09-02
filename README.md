@@ -108,7 +108,7 @@ PyInstaller freezes the Python sidecar into a target-specific binary. Tauri
 launches that binary as an external sidecar. The Arch build produces:
 
 ```text
-packaging/arch/chamber-tauri-grpc-poc-0.1.0-1-x86_64.pkg.tar.zst
+packaging/arch/chamber-tauri-grpc-poc-0.2.0-1-x86_64.pkg.tar.zst
 ```
 
 The packaged application does not need `uv` or a system Python at runtime.
