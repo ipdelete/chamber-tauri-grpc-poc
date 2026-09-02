@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+from collections.abc import AsyncIterator
 
 from pydantic_ai import Agent
 from pydantic_ai.models.ollama import OllamaModel
@@ -21,10 +22,15 @@ def build_agent() -> Agent[None, str]:
     return Agent(model)
 
 
-async def stream_response(prompt: str) -> None:
-    async with build_agent().run_stream(prompt) as response:
+async def stream_response(agent: Agent[None, str], prompt: str) -> AsyncIterator[str]:
+    async with agent.run_stream(prompt) as response:
         async for text in response.stream_text(delta=True):
-            print(text, end="", flush=True)
+            yield text
+
+
+async def print_response(prompt: str) -> None:
+    async for text in stream_response(build_agent(), prompt):
+        print(text, end="", flush=True)
     print()
 
 
@@ -32,7 +38,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("prompt")
     args = parser.parse_args()
-    asyncio.run(stream_response(args.prompt))
+    asyncio.run(print_response(args.prompt))
 
 
 if __name__ == "__main__":
