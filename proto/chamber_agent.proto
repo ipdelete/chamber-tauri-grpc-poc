@@ -3,33 +3,32 @@ syntax = "proto3";
 package chamber.agent.v1;
 
 service AgentRuntime {
-  rpc Chat(ChatRequest) returns (stream AgentEvent);
   rpc Interact(stream HostMessage) returns (stream AgentEvent);
-}
-
-message ChatRequest {
-  string session_id = 1;
-  string prompt = 2;
 }
 
 message AgentEvent {
   string session_id = 1;
+
+  reserved 6; // was HostToolCall
 
   oneof payload {
     Started started = 2;
     TextDelta text_delta = 3;
     Completed completed = 4;
     RuntimeError error = 5;
-    HostToolCall host_tool_call = 6;
+    ApprovalRequest approval_request = 7;
+    LensChanged lens_changed = 8;
   }
 }
 
 message HostMessage {
   string session_id = 1;
 
+  reserved 3; // was HostToolResult
+
   oneof payload {
     UserPrompt prompt = 2;
-    HostToolResult tool_result = 3;
+    ApprovalDecision approval_decision = 4;
   }
 }
 
@@ -37,19 +36,32 @@ message UserPrompt {
   string text = 1;
 }
 
-message HostToolCall {
-  string call_id = 1;
-  string name = 2;
+message ApprovalRequest {
+  string tool_call_id = 1;
+  string tool_name = 2;
   string arguments_json = 3;
 }
 
-message HostToolResult {
-  string call_id = 1;
+message ApprovalDecision {
+  string tool_call_id = 1;
 
   oneof outcome {
-    string result_json = 2;
-    string error = 3;
+    Approved approved = 2;
+    Denied denied = 3;
   }
+}
+
+message Approved {}
+
+message Denied {
+  string reason = 1;
+}
+
+message LensChanged {
+  string id = 1;
+  string name = 2;
+  string icon = 3;
+  string html = 4;
 }
 
 message Started {}

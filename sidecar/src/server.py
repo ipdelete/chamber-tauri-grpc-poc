@@ -1,9 +1,9 @@
 import argparse
 import asyncio
 import hmac
-import secrets
 import sys
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import grpc
 from pydantic_ai.exceptions import AgentRunError, ModelHTTPError
@@ -14,44 +14,9 @@ from agent import build_agent, stream_response
 
 
 class AgentRuntime(services.AgentRuntimeServicer):
-    def __init__(self, auth_token: str) -> None:
-        self.agent = build_agent()
+    def __init__(self, auth_token: str, mind_root: Path) -> None:
         self.auth_token = auth_token
-
-    async def Chat(
-        self,
-        request: messages.ChatRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> AsyncIterator[messages.AgentEvent]:
-        await self._authenticate(context)
-
-        yield messages.AgentEvent(
-            session_id=request.session_id,
-            started=messages.Started(),
-        )
-
-        try:
-            async for text in stream_response(self.agent, request.prompt):
-                yield messages.AgentEvent(
-                    session_id=request.session_id,
-                    text_delta=messages.TextDelta(text=text),
-                )
-        except AgentRunError as error:
-            yield messages.AgentEvent(
-                session_id=request.session_id,
-                error=messages.RuntimeError(
-                    code=type(error).__name__,
-                    message=str(error),
-                    retryable=isinstance(error, ModelHTTPError)
-                    and error.status_code >= 500,
-                ),
-            )
-            return
-
-        yield messages.AgentEvent(
-            session_id=request.session_id,
-            completed=messages.Completed(),
-        )
+        self.mind_root = mind_root
 
     async def Interact(
         self,
@@ -76,13 +41,11 @@ class AgentRuntime(services.AgentRuntimeServicer):
             )
             return
 
-        bridge = HostToolBridge(first.session_id)
-        reader = asyncio.create_task(bridge.receive_results(request_iterator))
+        bridge = ApprovalBridge(first.session_id)
+        reader = asyncio.create_task(bridge.receive_decisions(request_iterator))
+        reader.add_done_callback(bridge.reader_finished)
         runner = asyncio.create_task(
-            self._run_interactive_agent(
-                bridge,
-                first.prompt.text,
-            )
+            self._run_interactive_agent(bridge, first.prompt.text)
         )
 
         try:
@@ -109,21 +72,29 @@ class AgentRuntime(services.AgentRuntimeServicer):
 
     async def _run_interactive_agent(
         self,
-        bridge: "HostToolBridge",
+        bridge: "ApprovalBridge",
         prompt: str,
     ) -> None:
-        await bridge.emit(started=messages.Started())
         completed = False
         try:
-            agent = build_agent(bridge.call)
+            await bridge.emit(started=messages.Started())
+            agent = build_agent(
+                self.mind_root,
+                bridge.request_approval,
+                bridge.announce_lens,
+            )
             async for text in stream_response(agent, prompt):
                 await bridge.emit(text_delta=messages.TextDelta(text=text))
             completed = True
-        except AgentRunError as error:
+        except asyncio.CancelledError:
+            raise
+        except BaseException as error:  # noqa: BLE001 - the stream must always terminate
             await bridge.emit(
                 error=messages.RuntimeError(
                     code=type(error).__name__,
-                    message=str(error),
+                    message=str(error)
+                    if isinstance(error, AgentRunError)
+                    else "The agent run failed",
                     retryable=isinstance(error, ModelHTTPError)
                     and error.status_code >= 500,
                 )
@@ -134,68 +105,101 @@ class AgentRuntime(services.AgentRuntimeServicer):
             await bridge.events.put(None)
 
 
-class HostToolBridge:
+class ApprovalBridge:
+    """Carries approval requests down to the host and decisions back up.
+
+    Correlation uses PydanticAI's own tool_call_id, so the sidecar mints no IDs.
+    """
+
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.events: asyncio.Queue[messages.AgentEvent | None] = asyncio.Queue()
-        self.pending: dict[str, asyncio.Future[str]] = {}
+        self.pending: dict[str, asyncio.Future[str | None]] = {}
+        self.closed: str | None = None
 
     async def emit(self, **payload: object) -> None:
         await self.events.put(
             messages.AgentEvent(session_id=self.session_id, **payload)
         )
 
-    async def call(self, name: str, arguments_json: str) -> str:
-        call_id = secrets.token_hex(16)
-        result = asyncio.get_running_loop().create_future()
-        self.pending[call_id] = result
+    async def announce_lens(self, lens: dict[str, str]) -> None:
+        await self.emit(lens_changed=messages.LensChanged(**lens))
+
+    async def request_approval(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        arguments_json: str,
+    ) -> str | None:
+        """Return None when approved, or the denial reason."""
+        if self.closed is not None:
+            raise RuntimeError(self.closed)
+        if tool_call_id in self.pending:
+            raise RuntimeError(f"Duplicate approval request for {tool_call_id!r}")
+
+        decision = asyncio.get_running_loop().create_future()
+        self.pending[tool_call_id] = decision
         await self.emit(
-            host_tool_call=messages.HostToolCall(
-                call_id=call_id,
-                name=name,
+            approval_request=messages.ApprovalRequest(
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
                 arguments_json=arguments_json,
             )
         )
         try:
-            return await result
+            return await decision
         finally:
-            self.pending.pop(call_id, None)
+            self.pending.pop(tool_call_id, None)
 
-    async def receive_results(
+    async def receive_decisions(
         self,
         requests: AsyncIterator[messages.HostMessage],
     ) -> None:
         async for request in requests:
             if request.session_id != self.session_id:
-                self.fail_pending("Host tool result used the wrong session")
+                self.close("Approval decision used the wrong session")
                 return
-            if request.WhichOneof("payload") != "tool_result":
-                self.fail_pending("Expected a host tool result")
+            if request.WhichOneof("payload") != "approval_decision":
+                self.close("Expected an approval decision")
                 return
-            result = request.tool_result
-            pending = self.pending.get(result.call_id)
+            decision = request.approval_decision
+            pending = self.pending.get(decision.tool_call_id)
             if pending is None:
-                self.fail_pending("Host returned an unknown tool call ID")
+                self.close("Host answered an unknown tool call ID")
                 return
             if pending.done():
-                self.fail_pending("Host returned a duplicate tool result")
+                self.close("Host sent a duplicate approval decision")
                 return
-            if result.WhichOneof("outcome") == "result_json":
-                pending.set_result(result.result_json)
-            elif result.WhichOneof("outcome") == "error":
-                pending.set_exception(RuntimeError(result.error))
+            outcome = decision.WhichOneof("outcome")
+            if outcome == "approved":
+                pending.set_result(None)
+            elif outcome == "denied":
+                pending.set_result(decision.denied.reason or "The tool call was denied.")
             else:
-                pending.set_exception(RuntimeError("Host tool result omitted its outcome"))
+                self.close("Approval decision omitted its outcome")
+                return
 
-        self.fail_pending("Host connection closed")
+        self.close("Host connection closed")
 
-    def fail_pending(self, message: str) -> None:
+    def reader_finished(self, task: "asyncio.Task[None]") -> None:
+        """Close the bridge if the reader stopped without saying why."""
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            self.close(f"Host connection failed: {error}")
+        elif self.closed is None:
+            self.close("Host connection closed")
+
+    def close(self, message: str) -> None:
+        """Fail every waiting approval and refuse any later one."""
+        self.closed = message
         for pending in self.pending.values():
             if not pending.done():
                 pending.set_exception(RuntimeError(message))
 
 
-async def serve(port: int, shutdown_on_stdin: bool) -> None:
+async def serve(port: int, shutdown_on_stdin: bool, mind_root: Path) -> None:
     auth_line = (await asyncio.to_thread(sys.stdin.buffer.readline)).decode().strip()
     if not auth_line.startswith("AUTH "):
         raise RuntimeError("Expected authentication token on stdin")
@@ -208,7 +212,9 @@ async def serve(port: int, shutdown_on_stdin: bool) -> None:
         raise RuntimeError("Invalid authentication token")
 
     server = grpc.aio.server()
-    services.add_AgentRuntimeServicer_to_server(AgentRuntime(auth_token), server)
+    services.add_AgentRuntimeServicer_to_server(
+        AgentRuntime(auth_token, mind_root), server
+    )
     bound_port = server.add_insecure_port(f"127.0.0.1:{port}")
     if bound_port == 0:
         raise RuntimeError(f"Could not bind gRPC server to port {port}")
@@ -231,8 +237,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=50051)
     parser.add_argument("--shutdown-on-stdin", action="store_true")
+    parser.add_argument("--mind-root", type=Path, required=True)
     args = parser.parse_args()
-    asyncio.run(serve(args.port, args.shutdown_on_stdin))
+    asyncio.run(serve(args.port, args.shutdown_on_stdin, args.mind_root))
 
 
 if __name__ == "__main__":

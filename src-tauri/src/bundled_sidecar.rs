@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Duration;
 
 use crate::agent_runtime::generate_auth_token;
@@ -14,12 +15,16 @@ pub struct BundledSidecarProcess {
 }
 
 impl BundledSidecarProcess {
-    pub async fn start(app: &AppHandle) -> Result<Self, String> {
+    pub async fn start(app: &AppHandle, mind_root: &Path) -> Result<Self, String> {
+        std::fs::create_dir_all(mind_root).map_err(|error| error.to_string())?;
+        let mind_root = mind_root
+            .to_str()
+            .ok_or_else(|| "mind root is not valid UTF-8".to_owned())?;
         let command = app
             .shell()
             .sidecar("chamber-agent-sidecar")
             .map_err(|error| error.to_string())?
-            .args(["--port", "0", "--shutdown-on-stdin"]);
+            .args(["--port", "0", "--shutdown-on-stdin", "--mind-root", mind_root]);
         let (mut events, mut child) = command.spawn().map_err(|error| error.to_string())?;
         let auth_token = generate_auth_token().map_err(|error| error.to_string())?;
         child

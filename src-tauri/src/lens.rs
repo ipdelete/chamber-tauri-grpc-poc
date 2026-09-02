@@ -1,11 +1,9 @@
-use std::fs;
-use std::path::Path;
-
 use serde::{Deserialize, Serialize};
 
 const MAX_HTML_BYTES: usize = 512 * 1024;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+/// A lens snapshot the sidecar has already written to the mind directory.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LensDefinition {
     pub id: String,
@@ -14,36 +12,9 @@ pub struct LensDefinition {
     pub html: String,
 }
 
-#[derive(Serialize)]
-struct LensManifest<'a> {
-    name: &'a str,
-    icon: &'a str,
-    view: &'static str,
-    source: &'static str,
-}
-
-pub fn upsert(root: &Path, arguments_json: &str) -> Result<LensDefinition, String> {
-    let lens: LensDefinition =
-        serde_json::from_str(arguments_json).map_err(|error| error.to_string())?;
-    validate(&lens)?;
-
-    let directory = root.join(&lens.id);
-    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    fs::write(directory.join("index.html"), &lens.html).map_err(|error| error.to_string())?;
-    let manifest = serde_json::to_string_pretty(&LensManifest {
-        name: &lens.name,
-        icon: &lens.icon,
-        view: "canvas",
-        source: "index.html",
-    })
-    .map_err(|error| error.to_string())?;
-    fs::write(directory.join("view.json"), format!("{manifest}\n"))
-        .map_err(|error| error.to_string())?;
-
-    Ok(lens)
-}
-
-fn validate(lens: &LensDefinition) -> Result<(), String> {
+/// Guard the renderer. The sidecar owns the lens, so this only decides whether
+/// Chamber is willing to display what arrived.
+pub fn validate(lens: &LensDefinition) -> Result<(), String> {
     if lens.id.is_empty()
         || lens.id.len() > 64
         || !lens
@@ -75,26 +46,33 @@ fn validate(lens: &LensDefinition) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn lens(id: &str, html: &str) -> LensDefinition {
+        LensDefinition {
+            id: id.to_owned(),
+            name: "Release Board".to_owned(),
+            icon: "layout".to_owned(),
+            html: html.to_owned(),
+        }
+    }
+
     #[test]
-    fn persists_a_valid_canvas_lens() {
-        let root = std::env::temp_dir().join(format!(
-            "chamber-lens-test-{}",
-            crate::agent_runtime::generate_auth_token().unwrap()
-        ));
-        let lens = upsert(
-            &root,
-            r#"{"id":"release-board","name":"Release Board","icon":"layout","html":"<!doctype html><html><body>Ready</body></html>"}"#,
-        )
-        .unwrap();
-
-        assert_eq!(lens.id, "release-board");
-        assert!(root.join("release-board/index.html").is_file());
-        assert!(
-            fs::read_to_string(root.join("release-board/view.json"))
-                .unwrap()
-                .contains(r#""view": "canvas""#)
+    fn accepts_a_complete_document() {
+        let valid = lens(
+            "release-board",
+            "<!doctype html><html><body>Ready</body></html>",
         );
+        assert_eq!(validate(&valid), Ok(()));
+    }
 
-        fs::remove_dir_all(root).unwrap();
+    #[test]
+    fn rejects_a_bad_id() {
+        let invalid = lens("Release Board", "<html></html>");
+        assert!(validate(&invalid).is_err());
+    }
+
+    #[test]
+    fn rejects_a_fragment() {
+        let invalid = lens("release-board", "<div>Ready</div>");
+        assert!(validate(&invalid).is_err());
     }
 }

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use chamber_tauri_host::agent_runtime::{AgentRuntime, ChatEventPayload};
 use chamber_tauri_host::bundled_sidecar::BundledSidecarProcess;
-use chamber_tauri_host::lens::{LensDefinition, upsert};
+use chamber_tauri_host::lens::validate;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{Mutex, oneshot};
@@ -16,7 +16,7 @@ struct AgentHost {
 
 impl AgentHost {
     async fn start(app: &AppHandle) -> Result<Self, String> {
-        let sidecar = BundledSidecarProcess::start(app).await?;
+        let sidecar = BundledSidecarProcess::start(app, &mind_root(app)?).await?;
         let runtime = AgentRuntime::connect(sidecar.endpoint(), sidecar.auth_token())
             .await
             .map_err(|error| error.to_string())?;
@@ -149,16 +149,27 @@ async fn send_message(
                     message,
                     retryable,
                 },
-                ChatEventPayload::HostToolCall {
-                    call_id,
-                    name,
-                    arguments_json,
+                ChatEventPayload::ApprovalRequest {
+                    tool_call_id,
+                    tool_name,
+                    ..
                 } => {
-                    let result = execute_host_tool(&app, &name, &arguments_json);
+                    // Chamber auto-approves in this pass. Never log the arguments:
+                    // they carry up to 512 KiB of lens HTML.
+                    println!("auto-approving {tool_name} ({tool_call_id})");
                     events
-                        .send_tool_result(call_id, result)
+                        .send_approval_decision(tool_call_id, Ok(()))
                         .await
                         .map_err(|error| error.to_string())?;
+                    continue;
+                }
+                ChatEventPayload::LensChanged(lens) => {
+                    match validate(&lens) {
+                        Ok(()) => app
+                            .emit("lens-event", lens)
+                            .map_err(|error| error.to_string())?,
+                        Err(error) => eprintln!("refusing to render lens: {error}"),
+                    }
                     continue;
                 }
             };
@@ -175,31 +186,12 @@ async fn send_message(
     result
 }
 
-fn execute_host_tool(app: &AppHandle, name: &str, arguments_json: &str) -> Result<String, String> {
-    if name != "lens_upsert" {
-        return Err(format!("Unknown host tool: {name}"));
-    }
-
-    let root = app
+fn mind_root(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?
-        .join("poc-mind")
-        .join(".github")
-        .join("lens");
-    let lens = upsert(&root, arguments_json)?;
-    app.emit("lens-event", lens.clone())
-        .map_err(|error| error.to_string())?;
-    tool_success(&lens)
-}
-
-fn tool_success(lens: &LensDefinition) -> Result<String, String> {
-    serde_json::to_string(&serde_json::json!({
-        "ok": true,
-        "id": lens.id,
-        "message": "Lens saved and displayed"
-    }))
-    .map_err(|error| error.to_string())
+        .join("poc-mind"))
 }
 
 #[tauri::command]

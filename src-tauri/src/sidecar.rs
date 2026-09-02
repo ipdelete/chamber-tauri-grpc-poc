@@ -1,5 +1,5 @@
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -16,7 +16,8 @@ pub struct SidecarProcess {
 }
 
 impl SidecarProcess {
-    pub async fn start() -> io::Result<Self> {
+    pub async fn start(mind_root: &Path) -> io::Result<Self> {
+        std::fs::create_dir_all(mind_root)?;
         let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .ok_or_else(|| io::Error::other("Rust manifest has no parent directory"))?
@@ -32,6 +33,8 @@ impl SidecarProcess {
             .arg("--port")
             .arg("0")
             .arg("--shutdown-on-stdin")
+            .arg("--mind-root")
+            .arg(mind_root)
             .current_dir(project_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

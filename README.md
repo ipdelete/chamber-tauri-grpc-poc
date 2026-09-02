@@ -7,7 +7,21 @@ React -> Tauri command -> Rust -> gRPC -> PydanticAI -> Ollama
 React <- Tauri events  <- Rust <- streamed agent events
 ```
 
-Rust owns the sidecar process. The shared protobuf contract contains Chamber concepts rather than PydanticAI types.
+The sidecar boundary is a framework boundary, not a privilege boundary. Framework types stop at the
+protobuf contract so the framework behind it can be replaced without rewriting Chamber.
+
+The sidecar represents a mind, so it owns the mind's tools and writes the mind's directory. Today
+that is `lens_upsert`, which validates a Canvas Lens, writes `index.html` and `view.json` under
+`<mind>/.github/lens/<id>/`, and announces a `LensChanged` snapshot.
+
+Rust core keeps three jobs: the sidecar process lifecycle, the consent channel, and the renderer.
+Before a tool with side effects runs, the sidecar sends an `ApprovalRequest` and waits for an
+`ApprovalDecision`. This POC auto-approves every request; the approval UI is not built yet. Rust
+revalidates each `LensChanged` before handing it to the webview, which renders it in a sandboxed
+iframe.
+
+Security is policy, expressed two ways: user approval before an action, and restricting which tools a
+mind is given.
 
 ## Run in development
 

@@ -4,11 +4,13 @@ mod protocol {
 
 use std::fmt::Write;
 
+use crate::lens::LensDefinition;
+
 use protocol::agent_event::Payload;
 use protocol::agent_runtime_client::AgentRuntimeClient;
 use protocol::host_message::Payload as HostPayload;
-use protocol::host_tool_result::Outcome;
-use protocol::{ChatRequest, HostMessage, HostToolResult, UserPrompt};
+use protocol::approval_decision::Outcome;
+use protocol::{Approved, ApprovalDecision, Denied, HostMessage, UserPrompt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, transport::Channel};
@@ -39,11 +41,12 @@ pub enum ChatEventPayload {
         message: String,
         retryable: bool,
     },
-    HostToolCall {
-        call_id: String,
-        name: String,
+    ApprovalRequest {
+        tool_call_id: String,
+        tool_name: String,
         arguments_json: String,
     },
+    LensChanged(LensDefinition),
 }
 
 #[derive(Clone)]
@@ -61,26 +64,6 @@ impl AgentRuntime {
         Ok(Self {
             client,
             auth_token: auth_token.into(),
-        })
-    }
-
-    pub async fn chat(
-        &mut self,
-        session_id: impl Into<String>,
-        prompt: impl Into<String>,
-    ) -> Result<ChatStream, tonic::Status> {
-        let session_id = session_id.into();
-        let mut request = Request::new(ChatRequest {
-            session_id: session_id.clone(),
-            prompt: prompt.into(),
-        });
-        self.authenticate(&mut request)?;
-        let response = self.client.chat(request).await?;
-
-        Ok(ChatStream {
-            inner: response.into_inner(),
-            requests: None,
-            session_id,
         })
     }
 
@@ -143,11 +126,17 @@ impl ChatStream {
                 message: error.message,
                 retryable: error.retryable,
             },
-            Some(Payload::HostToolCall(call)) => ChatEventPayload::HostToolCall {
-                call_id: call.call_id,
-                name: call.name,
-                arguments_json: call.arguments_json,
+            Some(Payload::ApprovalRequest(request)) => ChatEventPayload::ApprovalRequest {
+                tool_call_id: request.tool_call_id,
+                tool_name: request.tool_name,
+                arguments_json: request.arguments_json,
             },
+            Some(Payload::LensChanged(lens)) => ChatEventPayload::LensChanged(LensDefinition {
+                id: lens.id,
+                name: lens.name,
+                icon: lens.icon,
+                html: lens.html,
+            }),
             None => return Err(tonic::Status::data_loss("agent event has no payload")),
         };
 
@@ -157,24 +146,24 @@ impl ChatStream {
         }))
     }
 
-    pub async fn send_tool_result(
+    pub async fn send_approval_decision(
         &self,
-        call_id: String,
-        result: Result<String, String>,
+        tool_call_id: String,
+        decision: Result<(), String>,
     ) -> Result<(), tonic::Status> {
         let requests = self
             .requests
             .as_ref()
             .ok_or_else(|| tonic::Status::failed_precondition("chat is not interactive"))?;
-        let outcome = match result {
-            Ok(json) => Outcome::ResultJson(json),
-            Err(error) => Outcome::Error(error),
+        let outcome = match decision {
+            Ok(()) => Outcome::Approved(Approved {}),
+            Err(reason) => Outcome::Denied(Denied { reason }),
         };
         requests
             .send(HostMessage {
                 session_id: self.session_id.clone(),
-                payload: Some(HostPayload::ToolResult(HostToolResult {
-                    call_id,
+                payload: Some(HostPayload::ApprovalDecision(ApprovalDecision {
+                    tool_call_id,
                     outcome: Some(outcome),
                 })),
             })

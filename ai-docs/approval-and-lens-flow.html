@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Approval and Lens Flow</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f141b;
+      --panel: #151c25;
+      --text: #e6edf3;
+      --muted: #9aa7b4;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 40px 24px 72px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.2;
+      margin: 0 0 12px;
+    }
+
+    h1 {
+      font-size: 34px;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      margin-top: 36px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 22px;
+    }
+
+    h3 {
+      margin-top: 24px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    ol, ul {
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 8px 0;
+    }
+
+    code {
+      color: #79c0ff;
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--text);
+      line-height: 1.45;
+    }
+
+    .summary {
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .diagram {
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      text-align: center;
+    }
+
+    .diagram pre {
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+
+    .diagram svg {
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Approval and lens flow</h1>
+    <p class="muted">How the Chamber Tauri gRPC POC splits a turn between a sidecar that acts and a host that consents.</p>
+
+    <div class="summary">
+      <p>
+        The sidecar owns its tools. When the agent calls <code>lens_upsert</code>, the tool runs inside the
+        sidecar, validates the lens, and writes it into the mind directory. What travels backwards is not the
+        work, it is the permission to do it.
+      </p>
+      <p>
+        Before a tool with side effects runs, the sidecar emits an <code>ApprovalRequest</code> up the same
+        stream it is streaming text down, and blocks until an <code>ApprovalDecision</code> comes back. That
+        single gate is the security model. Everything else is framework portability.
+      </p>
+    </div>
+
+    <h2>Two boundaries, not one</h2>
+    <p>
+      The sidecar boundary is a framework boundary. Framework types stop at the protobuf contract so PydanticAI
+      can be swapped for something else without rewriting Chamber. It is not a privilege boundary, and nothing in
+      the design pretends otherwise. The sidecar has a filesystem, and it uses it.
+    </p>
+    <p>
+      The privilege boundary is the approval gate. Security is policy, expressed two ways: the user approves an
+      action before it happens, and a mind is only given the tools it should have. A mind whose only tool is a
+      sandbox runner cannot touch anything else, no matter what the model decides.
+    </p>
+
+    <h2>The four layers</h2>
+    <p>
+      The webview runs React and knows nothing about agents. It receives <code>chat-event</code> and
+      <code>lens-event</code>, both in Chamber's own shapes, and renders chat text plus lenses in sandboxed
+      iframes. No gRPC, no model, no framework types.
+    </p>
+    <p>
+      The Rust core is a single process with three jobs: the sidecar process lifecycle, the consent channel, and
+      the renderer. It spawns sidecars, mints the auth token, holds the tonic client, answers approval requests,
+      and fans events out to the webview.
+    </p>
+    <p>
+      The Chamber Agent Protocol is the seam. Six event types, two host messages, all in Chamber's vocabulary. No
+      framework concept survives the crossing.
+    </p>
+    <p>
+      Sidecars run one per mind, each in its own OS process, each owning an agent loop, a model connection, its
+      tools, and its mind directory. Isolation is per mind: crash, memory, credentials, model choice, framework
+      version.
+    </p>
+
+    <h2>The shape of a turn</h2>
+    <p>
+      One gRPC call, <code>Interact</code>, holds two independent streams open for the whole turn. Text flows
+      down. Approval decisions flow up. Neither closes until the turn ends.
+    </p>
+    <p>
+      Inside the sidecar there is a trick that makes this work. The servicer function cannot both await the agent
+      and await incoming decisions, so it does neither. It becomes a pump over an <code>asyncio.Queue</code>, and
+      two background tasks feed it.
+    </p>
+
+    <div class="diagram">
+      <pre class="mermaid">
+sequenceDiagram
+    participant UI as Webview
+    participant Rust as Rust core
+    participant Pump as Interact pump
+    participant Bridge as ApprovalBridge
+    participant Agent as Agent loop + model
+    participant Disk as Mind directory
+
+    UI->>Rust: invoke send_message(session, prompt)
+    Rust->>Rust: mpsc channel(8), push UserPrompt
+    Rust->>Pump: Interact(stream) + x-chamber-token
+    Pump->>Pump: authenticate, read first msg, must be prompt
+    Pump->>Bridge: create
+    Pump-->>Agent: spawn runner task
+    Pump-->>Bridge: spawn reader task over request stream
+
+    Agent->>Bridge: emit Started
+    Bridge-->>Pump: queue
+    Pump-->>Rust: AgentEvent Started
+    Rust-->>UI: chat-event started
+
+    loop streamed text
+        Agent->>Bridge: emit TextDelta
+        Bridge-->>Pump: queue
+        Pump-->>Rust: AgentEvent TextDelta
+        Rust-->>UI: chat-event text_delta
+    end
+
+    Note over Agent: model calls lens_upsert
+    Agent->>Agent: ApprovalRequiredToolset raises ApprovalRequired
+    Agent->>Bridge: request_approval(tool_call_id, name, args)
+    Bridge-->>Pump: queue ApprovalRequest
+    Pump-->>Rust: AgentEvent ApprovalRequest
+    Note over Agent: runner is now suspended awaiting the future
+
+    Rust->>Bridge: ApprovalDecision Approved up the request stream
+    Bridge->>Bridge: reader matches tool_call_id, resolves the future
+    Bridge->>Agent: HandleDeferredToolCalls returns the decision
+
+    Agent->>Agent: tool body runs, validates the lens
+    Agent->>Disk: write index.html and view.json
+    Agent->>Bridge: announce_lens(snapshot)
+    Bridge-->>Pump: queue LensChanged
+    Pump-->>Rust: AgentEvent LensChanged
+    Rust->>Rust: revalidate before rendering
+    Rust-->>UI: lens-event, iframe renders
+
+    Note over Agent: model continues from the tool result
+    Agent->>Bridge: emit TextDelta, then Completed
+    Bridge-->>Pump: queue, then None sentinel
+    Pump-->>Rust: AgentEvent Completed
+    Rust-->>UI: chat-event completed
+      </pre>
+    </div>
+
+    <h2>Why each piece is there</h2>
+
+    <h3>Approval is native, not bolted on</h3>
+    <p>
+      <code>ApprovalRequiredToolset</code> wraps the tool and raises <code>ApprovalRequired</code> before the
+      body runs. The <code>HandleDeferredToolCalls</code> capability intercepts that, calls an async handler, and
+      resolves it inline in the same run. There is no second run, no output type change, and no message history
+      to replay. The suspension happens where the tool call happens.
+    </p>
+
+    <h3>The tool call ID comes from the framework</h3>
+    <p>
+      Correlation uses PydanticAI's own <code>tool_call_id</code>. The sidecar mints nothing, so there is no
+      second identifier space to keep in sync, and the ID in an <code>ApprovalRequest</code> is the same ID that
+      appears in the model's transcript.
+    </p>
+
+    <h3>Denial is not an error</h3>
+    <p>
+      A denial resolves as <code>ToolDenied</code>, which returns a message the model reads and adapts to. The
+      run keeps going. <code>ModelRetry</code> is reserved for arguments the model can fix and consumes the retry
+      budget. <code>ToolFailed</code> reports a write that definitively failed. Three outcomes, three meanings,
+      none of which kill the turn.
+    </p>
+
+    <h3>LensChanged carries the whole lens</h3>
+    <p>
+      An id-only event would force Rust to read from disk, and there are real races there. The manifest and the
+      HTML are two separate writes, the framework can run sibling tool calls concurrently, and Rust already
+      allows concurrent sessions against one runtime. Rust could load a half-replaced lens or mix one revision's
+      manifest with another's HTML. Carrying the snapshot removes the race and the second read path, and costs
+      nothing: the same HTML already crossed the wire in the <code>ApprovalRequest</code>.
+    </p>
+
+    <h3>Rust still validates what it renders</h3>
+    <p>
+      The sidecar validates before writing, so the model gets a usable reason when the lens is malformed. Rust
+      revalidates the incoming snapshot before handing it to the webview. That second check is not distrust of
+      the mind, it is the renderer refusing to display something it cannot display safely.
+    </p>
+
+    <h3>Dropping the stream unblocks everything</h3>
+    <p>
+      Rust drops <code>ChatStream</code>, the mpsc sender dies, the request iterator ends, the reader closes the
+      bridge, and any approval waiting on a future raises instead of hanging. The bridge stays closed, so an
+      approval requested afterwards fails immediately rather than waiting on nobody. Cancellation propagates
+      through the tool boundary without a cancel message existing in the protocol.
+    </p>
+
+    <h2>What this POC does not do</h2>
+    <p>
+      Rust auto-approves every request. There is no approval UI, no pending state, no timeout, and no way for the
+      user to say no. The plumbing is real and the decision is not. Calling the current behaviour consent would
+      be a lie.
+    </p>
+    <p>
+      Also absent on purpose: multi-turn prompts on the open stream, message history, session resume, health
+      checks and restart policy, and a sandbox for tools that need one.
+    </p>
+  </main>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "dark",
+      securityLevel: "strict",
+      themeVariables: {
+        background: "#151c25",
+        primaryColor: "#151c25",
+        primaryTextColor: "#e6edf3",
+        primaryBorderColor: "#30363d",
+        lineColor: "#58a6ff",
+        actorBkg: "#0f141b",
+        actorBorder: "#30363d",
+        actorTextColor: "#e6edf3",
+        noteBkgColor: "#352b5c",
+        noteTextColor: "#d8ceff",
+        noteBorderColor: "#7c5cff"
+      }
+    });
+  </script>
+</body>
+</html>
