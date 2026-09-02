@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Chamber gRPC POC
+Comment=Tauri and gRPC agent sidecar proof of concept
+Exec=chamber-tauri-grpc-poc
+Icon=chamber-tauri-grpc-poc
+Terminal=false
+Type=Application
+Categories=Development;

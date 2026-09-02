@@ -1,0 +1,24 @@
+pkgname=chamber-tauri-grpc-poc
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Tauri and gRPC agent sidecar proof of concept"
+arch=('x86_64')
+url="https://github.com/ipdelete/chamber-tauri-grpc-poc"
+license=('LicenseRef-Proprietary')
+depends=('webkit2gtk-4.1')
+options=('!debug' '!strip')
+
+package() {
+  install -Dm755 \
+    "$startdir/../../src-tauri/target/release/chamber-tauri-host" \
+    "$pkgdir/usr/bin/chamber-tauri-grpc-poc"
+  install -Dm755 \
+    "$startdir/../../src-tauri/target/release/chamber-agent-sidecar" \
+    "$pkgdir/usr/bin/chamber-agent-sidecar"
+  install -Dm644 \
+    "$startdir/chamber-tauri-grpc-poc.desktop" \
+    "$pkgdir/usr/share/applications/chamber-tauri-grpc-poc.desktop"
+  install -Dm644 \
+    "$startdir/../../src-tauri/icons/128x128.png" \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/chamber-tauri-grpc-poc.png"
+}

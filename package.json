@@ -4,8 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "build:sidecar": "node scripts/build-sidecar.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
+    "package:arch": "./scripts/package-arch.sh",
     "tauri": "tauri"
   },
   "dependencies": {

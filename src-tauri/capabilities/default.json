@@ -3,5 +3,17 @@
   "identifier": "default",
   "description": "Default permissions for the Chamber window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/chamber-agent-sidecar",
+          "sidecar": true,
+          "args": ["--port", "0", "--shutdown-on-stdin"]
+        }
+      ]
+    }
+  ]
 }

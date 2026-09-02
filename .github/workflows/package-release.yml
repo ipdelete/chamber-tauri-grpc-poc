@@ -1,0 +1,135 @@
+name: Package and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag for the prerelease
+        required: true
+        default: v0.1.0
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  arch-package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+
+    steps:
+      - name: Install Arch build dependencies
+        run: >-
+          pacman -Syu --noconfirm
+          git
+          nodejs
+          npm
+          protobuf
+          rust
+          uv
+          webkit2gtk-4.1
+          libayatana-appindicator
+          librsvg
+          patchelf
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          uv sync --project sidecar --locked
+
+      - name: Build frozen sidecar
+        run: |
+          npm run build:sidecar
+          "src-tauri/binaries/chamber-agent-sidecar-$(rustc --print host-tuple)" --help
+
+      - name: Build Tauri application
+        run: npm run tauri -- build --no-bundle
+
+      - name: Build Pacman package
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- bash -c "cd '$GITHUB_WORKSPACE/packaging/arch' && makepkg --cleanbuild --force --nodeps"
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v7
+        with:
+          name: chamber-arch
+          path: packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error
+
+  windows-package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: sidecar/uv.lock
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.98.0
+
+      - name: Set up protoc
+        uses: arduino/setup-protoc@v3
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          uv sync --project sidecar --locked
+
+      - name: Build and check frozen sidecar
+        shell: pwsh
+        run: |
+          npm run build:sidecar
+          $target = rustc --print host-tuple
+          & ".\src-tauri\binaries\chamber-agent-sidecar-$target.exe" --help
+
+      - name: Build unsigned NSIS installer
+        run: npm run tauri -- build --bundles nsis
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: chamber-windows
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+  release:
+    needs:
+      - arch-package
+      - windows-package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: chamber-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" release-artifacts/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --generate-notes \
+            --prerelease

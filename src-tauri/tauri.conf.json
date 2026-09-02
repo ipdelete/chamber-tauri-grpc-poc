@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.ipdelete.chamber-tauri-grpc-poc",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run build:sidecar && npm run dev",
+    "beforeBuildCommand": "npm run build:sidecar && npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -22,7 +22,8 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "externalBin": ["binaries/chamber-agent-sidecar"],
     "icon": []
   }
 }

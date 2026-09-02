@@ -29,7 +29,7 @@ impl SidecarProcess {
             .arg(server)
             .arg("--port")
             .arg("0")
-            .arg("--shutdown-on-stdin-eof")
+            .arg("--shutdown-on-stdin")
             .current_dir(project_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

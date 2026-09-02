@@ -1,21 +1,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use chamber_tauri_host::agent_runtime::{AgentRuntime, ChatEventPayload};
-use chamber_tauri_host::sidecar::SidecarProcess;
+use chamber_tauri_host::bundled_sidecar::BundledSidecarProcess;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 struct AgentHost {
     runtime: AgentRuntime,
-    sidecar: SidecarProcess,
+    sidecar: BundledSidecarProcess,
 }
 
 impl AgentHost {
-    async fn start() -> Result<Self, String> {
-        let sidecar = SidecarProcess::start()
-            .await
-            .map_err(|error| error.to_string())?;
+    async fn start(app: &AppHandle) -> Result<Self, String> {
+        let sidecar = BundledSidecarProcess::start(app).await?;
         let runtime = AgentRuntime::connect(sidecar.endpoint())
             .await
             .map_err(|error| error.to_string())?;
@@ -73,7 +71,7 @@ async fn send_message(
 
     let mut host = state.host.lock().await;
     if host.is_none() {
-        *host = Some(AgentHost::start().await?);
+        *host = Some(AgentHost::start(&app).await?);
     }
     let runtime = &mut host.as_mut().expect("agent host was initialized").runtime;
     let mut events = runtime
@@ -113,6 +111,7 @@ async fn send_message(
 
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .manage(AgentState::default())
         .invoke_handler(tauri::generate_handler![send_message])
         .build(tauri::generate_context!())
