@@ -8,9 +8,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "Reply with exactly: concurrent sidecars work".to_owned());
     let (sidecar_a, sidecar_b) =
         tokio::try_join!(SidecarProcess::start(), SidecarProcess::start())?;
+    reject_invalid_token(sidecar_a.endpoint()).await?;
     let (mut runtime_a, mut runtime_b) = tokio::try_join!(
-        AgentRuntime::connect(sidecar_a.endpoint()),
-        AgentRuntime::connect(sidecar_b.endpoint())
+        AgentRuntime::connect(sidecar_a.endpoint(), sidecar_a.auth_token()),
+        AgentRuntime::connect(sidecar_b.endpoint(), sidecar_b.auth_token())
     )?;
     let (response_a, response_b) = tokio::try_join!(
         chat(&mut runtime_a, "sidecar-a", prompt.clone()),
@@ -64,6 +65,21 @@ async fn chat(
     }
 
     Ok(response)
+}
+
+async fn reject_invalid_token(endpoint: String) -> Result<(), Box<dyn std::error::Error>> {
+    let mut runtime = AgentRuntime::connect(endpoint, "invalid-token").await?;
+    match runtime.chat("unauthenticated", "This must not run").await {
+        Err(status) if status.code() == tonic::Code::Unauthenticated => {
+            println!("[authentication] invalid token rejected");
+            Ok(())
+        }
+        Err(status) => Err(std::io::Error::other(format!(
+            "expected unauthenticated, received {status}"
+        ))
+        .into()),
+        Ok(_) => Err(std::io::Error::other("invalid token was accepted").into()),
+    }
 }
 
 async fn cancel_after_first_delta(

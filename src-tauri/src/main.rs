@@ -16,7 +16,7 @@ struct AgentHost {
 impl AgentHost {
     async fn start(app: &AppHandle) -> Result<Self, String> {
         let sidecar = BundledSidecarProcess::start(app).await?;
-        let runtime = AgentRuntime::connect(sidecar.endpoint())
+        let runtime = AgentRuntime::connect(sidecar.endpoint(), sidecar.auth_token())
             .await
             .map_err(|error| error.to_string())?;
         Ok(Self { runtime, sidecar })

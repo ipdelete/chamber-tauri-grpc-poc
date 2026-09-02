@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::agent_runtime::generate_auth_token;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -9,6 +10,7 @@ pub struct BundledSidecarProcess {
     child: CommandChild,
     events: tauri::async_runtime::Receiver<CommandEvent>,
     port: u16,
+    auth_token: String,
 }
 
 impl BundledSidecarProcess {
@@ -18,7 +20,11 @@ impl BundledSidecarProcess {
             .sidecar("chamber-agent-sidecar")
             .map_err(|error| error.to_string())?
             .args(["--port", "0", "--shutdown-on-stdin"]);
-        let (mut events, child) = command.spawn().map_err(|error| error.to_string())?;
+        let (mut events, mut child) = command.spawn().map_err(|error| error.to_string())?;
+        let auth_token = generate_auth_token().map_err(|error| error.to_string())?;
+        child
+            .write(format!("AUTH {auth_token}\n").as_bytes())
+            .map_err(|error| error.to_string())?;
 
         let port = timeout(Duration::from_secs(30), async {
             loop {
@@ -52,11 +58,16 @@ impl BundledSidecarProcess {
             child,
             events,
             port,
+            auth_token,
         })
     }
 
     pub fn endpoint(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
+    }
+
+    pub fn auth_token(&self) -> &str {
+        &self.auth_token
     }
 
     pub async fn shutdown(self) -> Result<(), String> {

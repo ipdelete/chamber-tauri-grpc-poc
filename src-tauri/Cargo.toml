@@ -5,6 +5,7 @@ edition = "2024"
 default-run = "chamber-tauri-host"
 
 [dependencies]
+getrandom = "0.4.3"
 prost = "0.14.4"
 serde = { version = "1.0.229", features = ["derive"] }
 tauri = { version = "2.11.5", features = [] }

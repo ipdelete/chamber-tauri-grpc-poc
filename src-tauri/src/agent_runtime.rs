@@ -2,10 +2,22 @@ mod protocol {
     tonic::include_proto!("chamber.agent.v1");
 }
 
+use std::fmt::Write;
+
 use protocol::ChatRequest;
 use protocol::agent_event::Payload;
 use protocol::agent_runtime_client::AgentRuntimeClient;
-use tonic::transport::Channel;
+use tonic::{Request, transport::Channel};
+
+pub fn generate_auth_token() -> Result<String, getrandom::Error> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes)?;
+    let mut token = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(token, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+    Ok(token)
+}
 
 #[derive(Debug, PartialEq)]
 pub struct ChatEvent {
@@ -28,12 +40,19 @@ pub enum ChatEventPayload {
 #[derive(Clone)]
 pub struct AgentRuntime {
     client: AgentRuntimeClient<Channel>,
+    auth_token: String,
 }
 
 impl AgentRuntime {
-    pub async fn connect(endpoint: impl Into<String>) -> Result<Self, tonic::transport::Error> {
+    pub async fn connect(
+        endpoint: impl Into<String>,
+        auth_token: impl Into<String>,
+    ) -> Result<Self, tonic::transport::Error> {
         let client = AgentRuntimeClient::connect(endpoint.into()).await?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            auth_token: auth_token.into(),
+        })
     }
 
     pub async fn chat(
@@ -41,13 +60,17 @@ impl AgentRuntime {
         session_id: impl Into<String>,
         prompt: impl Into<String>,
     ) -> Result<ChatStream, tonic::Status> {
-        let response = self
-            .client
-            .chat(ChatRequest {
-                session_id: session_id.into(),
-                prompt: prompt.into(),
-            })
-            .await?;
+        let mut request = Request::new(ChatRequest {
+            session_id: session_id.into(),
+            prompt: prompt.into(),
+        });
+        request.metadata_mut().insert(
+            "x-chamber-token",
+            self.auth_token
+                .parse()
+                .map_err(|_| tonic::Status::internal("invalid sidecar authentication token"))?,
+        );
+        let response = self.client.chat(request).await?;
 
         Ok(ChatStream {
             inner: response.into_inner(),

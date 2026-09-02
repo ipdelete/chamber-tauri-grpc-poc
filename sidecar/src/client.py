@@ -7,10 +7,13 @@ import chamber_agent_pb2 as messages
 import chamber_agent_pb2_grpc as services
 
 
-async def chat(port: int, prompt: str) -> None:
+async def chat(port: int, token: str, prompt: str) -> None:
     async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
         client = services.AgentRuntimeStub(channel)
-        events = client.Chat(messages.ChatRequest(session_id="demo", prompt=prompt))
+        events = client.Chat(
+            messages.ChatRequest(session_id="demo", prompt=prompt),
+            metadata=(("x-chamber-token", token),),
+        )
 
         async for event in events:
             match event.WhichOneof("payload"):
@@ -32,8 +35,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("prompt")
     parser.add_argument("--port", type=int, default=50051)
+    parser.add_argument("--token", required=True)
     args = parser.parse_args()
-    asyncio.run(chat(args.port, args.prompt))
+    asyncio.run(chat(args.port, args.token, args.prompt))
 
 
 if __name__ == "__main__":

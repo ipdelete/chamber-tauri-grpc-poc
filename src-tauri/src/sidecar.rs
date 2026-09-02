@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, BufReader};
+use crate::agent_runtime::generate_auth_token;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::time::timeout;
 
@@ -11,6 +12,7 @@ pub struct SidecarProcess {
     child: Child,
     stdin: Option<ChildStdin>,
     port: u16,
+    auth_token: String,
 }
 
 impl SidecarProcess {
@@ -37,10 +39,16 @@ impl SidecarProcess {
             .kill_on_drop(true)
             .spawn()?;
 
-        let stdin = child
+        let mut stdin = child
             .stdin
             .take()
             .ok_or_else(|| io::Error::other("sidecar stdin was not captured"))?;
+        let auth_token =
+            generate_auth_token().map_err(|error| io::Error::other(error.to_string()))?;
+        stdin
+            .write_all(format!("AUTH {auth_token}\n").as_bytes())
+            .await?;
+        stdin.flush().await?;
         let stdout = child
             .stdout
             .take()
@@ -71,6 +79,7 @@ impl SidecarProcess {
             child,
             stdin: Some(stdin),
             port,
+            auth_token,
         })
     }
 
@@ -78,7 +87,15 @@ impl SidecarProcess {
         format!("http://127.0.0.1:{}", self.port)
     }
 
+    pub fn auth_token(&self) -> &str {
+        &self.auth_token
+    }
+
     pub async fn shutdown(mut self) -> io::Result<()> {
+        if let Some(stdin) = self.stdin.as_mut() {
+            stdin.write_all(b"SHUTDOWN\n").await?;
+            stdin.flush().await?;
+        }
         drop(self.stdin.take());
 
         match timeout(Duration::from_secs(10), self.child.wait()).await {
@@ -102,7 +119,6 @@ impl SidecarProcess {
     }
 
     pub async fn kill(mut self) -> io::Result<()> {
-        drop(self.stdin.take());
         self.child.kill().await?;
         self.child.wait().await?;
         Ok(())
