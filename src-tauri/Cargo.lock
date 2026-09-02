@@ -370,7 +370,6 @@ dependencies = [
  "getrandom 0.4.3",
  "prost",
  "serde",
- "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",

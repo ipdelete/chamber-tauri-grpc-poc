@@ -2,7 +2,6 @@ import {
   FormEvent,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -185,11 +184,6 @@ export default function App() {
     return () => window.removeEventListener("message", receiveCanvasAction);
   }, [lens, sendPrompt]);
 
-  const canvasDocument = useMemo(
-    () => (lens ? withCanvasBridge(lens.html) : ""),
-    [lens],
-  );
-
   function submit(event: FormEvent) {
     event.preventDefault();
     const request =
@@ -274,7 +268,7 @@ export default function App() {
             <iframe
               ref={frame}
               sandbox="allow-scripts"
-              srcDoc={canvasDocument}
+              srcDoc={lens ? withCanvasBridge(lens.html) : ""}
               title={lens?.name}
             />
             {sending && (

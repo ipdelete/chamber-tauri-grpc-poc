@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import json
 import os
@@ -80,9 +79,9 @@ def write_lens(mind_root: Path, id: str, name: str, icon: str, html: str) -> Non
 
 
 def build_agent(
-    mind_root: Path | None = None,
-    approve: Approve | None = None,
-    on_lens_changed: LensListener | None = None,
+    mind_root: Path,
+    approve: Approve,
+    on_lens_changed: LensListener,
 ) -> Agent[None, str]:
     provider = OllamaProvider(
         base_url=os.getenv("OLLAMA_BASE_URL", DEFAULT_BASE_URL),
@@ -92,15 +91,11 @@ def build_agent(
         provider=provider,
     )
 
-    if mind_root is None or approve is None:
-        return Agent(model)
-
     async def lens_upsert(id: str, name: str, icon: str, html: str) -> str:
         """Create or replace a sandboxed Canvas Lens in Chamber."""
         validate_lens(id, name, icon, html)
         await asyncio.to_thread(write_lens, mind_root, id, name, icon, html)
-        if on_lens_changed is not None:
-            await on_lens_changed({"id": id, "name": name, "icon": icon, "html": html})
+        await on_lens_changed({"id": id, "name": name, "icon": icon, "html": html})
         return json.dumps({"ok": True, "id": id, "message": "Lens saved and displayed"})
 
     async def handle_deferred(
@@ -129,20 +124,3 @@ async def stream_response(agent: Agent[None, str], prompt: str) -> AsyncIterator
     async with agent.run_stream(prompt) as response:
         async for text in response.stream_text(delta=True):
             yield text
-
-
-async def print_response(prompt: str) -> None:
-    async for text in stream_response(build_agent(), prompt):
-        print(text, end="", flush=True)
-    print()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("prompt")
-    args = parser.parse_args()
-    asyncio.run(print_response(args.prompt))
-
-
-if __name__ == "__main__":
-    main()

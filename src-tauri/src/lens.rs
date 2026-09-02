@@ -1,10 +1,9 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 const MAX_HTML_BYTES: usize = 512 * 1024;
 
 /// A lens snapshot the sidecar has already written to the mind directory.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct LensDefinition {
     pub id: String,
     pub name: String,

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "..");
 const sidecar = join(root, "sidecar");
+const sidecarSource = join(sidecar, "src");
 const target = execFileSync("rustc", ["--print", "host-tuple"], {
   encoding: "utf8",
 }).trim();
@@ -19,19 +20,14 @@ const extension = process.platform === "win32" ? ".exe" : "";
 const name = `chamber-agent-sidecar-${target}`;
 const output = join(root, "src-tauri", "binaries", `${name}${extension}`);
 
-function filesIn(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    return entry.isDirectory() ? filesIn(path) : [path];
-  });
-}
-
 const inputs = [
   script,
   join(sidecar, ".python-version"),
   join(sidecar, "pyproject.toml"),
   join(sidecar, "uv.lock"),
-  ...filesIn(join(sidecar, "src")),
+  ...readdirSync(sidecarSource, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath, entry.name)),
 ];
 
 if (

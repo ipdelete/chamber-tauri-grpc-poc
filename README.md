@@ -46,6 +46,17 @@ CHAMBER_MODEL=qwen3 \
 npm run tauri -- dev
 ```
 
+Run the sidecar smoke test separately:
+
+```bash
+cargo run --manifest-path src-tauri/Cargo.toml --bin agent-smoke
+```
+
+It starts two sidecars, verifies both can chat, kills one, and confirms the
+other survives. It also checks authentication, request cancellation, and lens
+approval and denial. The test uses the same Ollama and model environment
+variables as the app.
+
 ## Build the Arch Linux package
 
 ```bash
