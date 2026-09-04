@@ -61,6 +61,97 @@ jobs:
           path: packaging/arch/*.pkg.tar.zst
           if-no-files-found: error
 
+  arch-package-go:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+
+    steps:
+      - name: Install Arch build dependencies
+        run: >-
+          pacman -Syu --noconfirm
+          git
+          nodejs
+          npm
+          protobuf
+          rust
+          go
+          webkit2gtk-4.1
+          libayatana-appindicator
+          librsvg
+          patchelf
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Go sidecar
+        run: npm run build:sidecar:go
+
+      - name: Build Tauri application
+        env:
+          CHAMBER_SIDECAR_KIND: go
+        run: npm run tauri -- build --no-bundle
+
+      - name: Build Pacman package
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- bash -c "cd '$GITHUB_WORKSPACE/packaging/arch-go' && makepkg --cleanbuild --force --nodeps"
+
+      - name: Upload Arch Go package
+        uses: actions/upload-artifact@v7
+        with:
+          name: chamber-arch-go
+          path: packaging/arch-go/*.pkg.tar.zst
+          if-no-files-found: error
+
+  arch-package-rust:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+
+    steps:
+      - name: Install Arch build dependencies
+        run: >-
+          pacman -Syu --noconfirm
+          git
+          nodejs
+          npm
+          protobuf
+          rust
+          webkit2gtk-4.1
+          libayatana-appindicator
+          librsvg
+          patchelf
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Rust sidecar
+        run: npm run build:sidecar:rust
+
+      - name: Build Tauri application
+        env:
+          CHAMBER_SIDECAR_KIND: rust
+        run: npm run tauri -- build --no-bundle
+
+      - name: Build Pacman package
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- bash -c "cd '$GITHUB_WORKSPACE/packaging/arch-rust' && makepkg --cleanbuild --force --nodeps"
+
+      - name: Upload Arch Rust package
+        uses: actions/upload-artifact@v7
+        with:
+          name: chamber-arch-rust
+          path: packaging/arch-rust/*.pkg.tar.zst
+          if-no-files-found: error
+
   windows-package:
     runs-on: windows-latest
 
@@ -111,6 +202,8 @@ jobs:
   release:
     needs:
       - arch-package
+      - arch-package-go
+      - arch-package-rust
       - windows-package
     runs-on: ubuntu-latest
 

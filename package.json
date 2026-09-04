@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "build:sidecar": "node scripts/build-sidecar.mjs",
+    "build:sidecar:go": "CHAMBER_SIDECAR_KIND=go node scripts/build-sidecar.mjs",
+    "build:sidecar:rust": "CHAMBER_SIDECAR_KIND=rust node scripts/build-sidecar.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "package:arch": "./scripts/package-arch.sh",
+    "package:arch:go": "./scripts/package-arch.sh go",
+    "package:arch:rust": "./scripts/package-arch.sh rust",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -6,6 +6,12 @@ node_modules/
 packaging/arch/pkg/
 packaging/arch/src/
 packaging/arch/*.pkg.tar.*
+packaging/arch-go/pkg/
+packaging/arch-go/src/
+packaging/arch-go/*.pkg.tar.*
+packaging/arch-rust/pkg/
+packaging/arch-rust/src/
+packaging/arch-rust/*.pkg.tar.*
 src-tauri/binaries/
 src-tauri/gen/
 target/

@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -19,6 +20,30 @@ const target = execFileSync("rustc", ["--print", "host-tuple"], {
 const extension = process.platform === "win32" ? ".exe" : "";
 const name = `chamber-agent-sidecar-${target}`;
 const output = join(root, "src-tauri", "binaries", `${name}${extension}`);
+
+const sidecarKind = (process.env.CHAMBER_SIDECAR_KIND || "python").toLowerCase();
+
+if (sidecarKind === "go") {
+  mkdirSync(dirname(output), { recursive: true });
+  execFileSync(
+    "go",
+    ["build", "-ldflags=-s -w", "-o", output, "./cmd/server"],
+    { cwd: join(root, "sidecar-go"), stdio: "inherit" },
+  );
+  process.exit(0);
+}
+
+if (sidecarKind === "rust") {
+  mkdirSync(dirname(output), { recursive: true });
+  execFileSync(
+    "cargo",
+    ["build", "--release", "--manifest-path", join(root, "sidecar-rust", "Cargo.toml")],
+    { stdio: "inherit" },
+  );
+  const rustBin = join(root, "sidecar-rust", "target", "release", `sidecar-rust${extension}`);
+  copyFileSync(rustBin, output);
+  process.exit(0);
+}
 
 const inputs = [
   script,
