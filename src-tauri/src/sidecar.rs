@@ -22,25 +22,40 @@ impl SidecarProcess {
             .parent()
             .ok_or_else(|| io::Error::other("Rust manifest has no parent directory"))?
             .to_owned();
-        let sidecar_project = project_root.join("sidecar");
-        let server = sidecar_project.join("src/server.py");
-        let mut child = Command::new("uv")
-            .arg("run")
-            .arg("--project")
-            .arg(&sidecar_project)
-            .arg("python")
-            .arg(server)
-            .arg("--port")
-            .arg("0")
-            .arg("--shutdown-on-stdin")
-            .arg("--mind-root")
-            .arg(mind_root)
-            .current_dir(project_root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()?;
+        let mut child = if let Ok(bin) = std::env::var("CHAMBER_SIDECAR_BIN") {
+            Command::new(bin)
+                .arg("--port")
+                .arg("0")
+                .arg("--shutdown-on-stdin")
+                .arg("--mind-root")
+                .arg(mind_root)
+                .current_dir(&project_root)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .kill_on_drop(true)
+                .spawn()?
+        } else {
+            let sidecar_project = project_root.join("sidecar");
+            let server = sidecar_project.join("src/server.py");
+            Command::new("uv")
+                .arg("run")
+                .arg("--project")
+                .arg(&sidecar_project)
+                .arg("python")
+                .arg(server)
+                .arg("--port")
+                .arg("0")
+                .arg("--shutdown-on-stdin")
+                .arg("--mind-root")
+                .arg(mind_root)
+                .current_dir(&project_root)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .kill_on_drop(true)
+                .spawn()?
+        };
 
         let mut stdin = child
             .stdin

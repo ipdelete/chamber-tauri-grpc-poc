@@ -9,3 +9,5 @@ packaging/arch/*.pkg.tar.*
 src-tauri/binaries/
 src-tauri/gen/
 target/
+sidecar-go/bin/
+sidecar-rust/target/
